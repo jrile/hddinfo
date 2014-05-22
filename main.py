@@ -1,6 +1,12 @@
-import os, os.path, mysql.connector, datetime, sys, commands, re
+import os
+import os.path
+import datetime
+import sys
+import commands
+import re
+import mysql.connector
 from optparse import OptionParser
-
+from label import *
 connection = mysql.connector.connect(user='root', database='hdds')
 cursor = connection.cursor()
 
@@ -25,6 +31,7 @@ def main(argv):
     while not username:
         username = raw_input("Enter username: ")
         
+
     parse_drives(filename, username, options.output, options.prompt)
 
 
@@ -42,11 +49,11 @@ def parse_drives(f, username, output, prompt):
             command = "sudo umount /mnt"
             os.system(command)
             # mount drive
-            command = "sudo mount " + drive + " /mnt -t auto"
+            command = "sudo mount -t auto " + drive + " /mnt 2>/dev/null" #ignore output that may occur if nothing is mounted here.
             os.system(command)
         
             # get drive serial #. assuming serial is unique.
-            serial = commands.getoutput("sudo smartctl -i " + drive + " | grep \"Serial Number:\"").split()[2]
+            serial = commands.getoutput("sudo smartctl -i " + drive[:8] + " | grep \"Serial Number:\"").split()[2]
             print serial
             label = None
             location = None
@@ -57,7 +64,6 @@ def parse_drives(f, username, output, prompt):
                 location = raw_input("Enter location: ")
                 notes = raw_input("Enter notes for drive: ")
 
-
             add_drive(label, location, serial, notes, username)
 
             if output:
@@ -65,8 +71,13 @@ def parse_drives(f, username, output, prompt):
                 if label:
                     output.write("Label: " + label + "\n")
 
-            parse_folders("/mnt", serial, out=output, prompt=prompt)
+            l = Label()
+            l.label(serial, ["test1", "test2", "test3"], username) #testing
 
+            folders = parse_folders("/mnt", serial, out=output, prompt=prompt)
+
+            #label(serial, folders, username)
+            
             print "Sucessfully parsed drive: " + drive
             print
 
@@ -79,26 +90,31 @@ def parse_drives(f, username, output, prompt):
             print "Error! This drive already exists in the database: " + drive
             
         finally:
+            print "Program ending... attempting to unmount " + drive
             if output:
                 output.close()
+            command = "sudo umount /mnt"
+            os.system(command)
 
 def parse_folders(path, serial, level=1, out=None, prompt=False):
+    folders = []
     if level == 1:
         # add a 'root' folder for all the files on on the top-most directory.
         add_folder(serial, "root")
-        folder_sequence = get_folder_sequence("root", serial)
+        folder_sequence = get_last_folder_sequence()
         parse_files(path, folder_sequence, serial, 1, out, prompt)
 
     for f in os.listdir(path):
         if os.path.isdir(os.path.join(path,f)):
+            folders.append(f)
             print ("---" * level) + "Folder found: " + f
             if out:
                 out.write(("---" * level) + f + "/\n")
             add_folder(serial, f)
-            folder_sequence = get_folder_sequence(f, serial)
+            folder_sequence = get_last_folder_sequence()
             parse_files(os.path.join(path, f), folder_sequence, serial, level=level+1, out=out, prompt=prompt)
             parse_folders(os.path.join(path, f), serial, level=level+1, out=out, prompt=prompt)
-
+    return folders
         
 
 
@@ -111,6 +127,7 @@ def parse_files(path, folder_sequence, serial, level=2, out=None, prompt=False):
                 out.write(("---" * level) + filename + "\n")
             date = os.path.getmtime(os.path.join(path, filename))
             dt = datetime.datetime.fromtimestamp(date)
+            notes = None
             if prompt:
                 notes = raw_input("---" * level + "Enter notes for file " + filename + ": ")
             add_file(filename, folder_sequence, dt.strftime('%Y-%m-%d %H:%M:%S'), notes)
@@ -133,9 +150,8 @@ def add_folder(serial, folder_name):
     query = "insert into folders (serial, folder_name) values (%s, %s)"
     cursor.execute(query, (serial, folder_name))
 
-def get_folder_sequence(folder_name, serial):
-    query = "select folder_sequence from folders where folder_name = %s and serial = %s"
-    cursor.execute(query, (folder_name, serial))
+def get_last_folder_sequence():
+    cursor.execute("select max(folder_sequence) from folders")
     return cursor.fetchone()[0]
 
 def update_folder(folder_sequence, serial, folder_name):
