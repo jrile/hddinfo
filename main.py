@@ -88,6 +88,11 @@ def parse_drives(f, username, output, prompt):
            
         except mysql.connector.errors.IntegrityError:
             print "Error! This drive already exists in the database: " + drive
+
+        except KeyboardInterrupt:
+            print "\nUser interrupt! Cancelling parsing drive " + drive + "!"
+            remove_all(serial)
+            
             
         finally:
             print "Program ending... attempting to unmount " + drive
@@ -171,6 +176,14 @@ def update_file(file_sequence, name, folder_sequence, created, notes):
 
 def remove_file(file_sequence):
     cursor.execute("delete from files where file_sequence = \'%s\'" % file_sequence)
+
+def remove_all(serial):
+    query = "delete from files where folder_sequence = (select folder_sequence from folders where serial = \'%s\')" 
+    cursor.execute(query % serial)
+    query = "delete from folders where serial = \'%s\'"
+    cursor.execute(query % serial)
+    remove_hdd(serial)
+    print serial + " has been removed from the database."
 
 
 
