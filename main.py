@@ -7,6 +7,7 @@ import re
 import mysql.connector
 from optparse import OptionParser
 from label import *
+from organization import *
 connection = mysql.connector.connect(user='root', database='hdds')
 cursor = connection.cursor()
 
@@ -17,11 +18,16 @@ def main(argv):
     parser.add_option("-f", "--file", dest="filename", help="read mountpoints from FILE", metavar="FILE")
     parser.add_option("-o", "--output", dest="output", help="dump drive information to FILE", metavar="FILE")
     parser.add_option("-p", "--prompt", dest="prompt", help="specify drive information before adding to database", action="store_true")
+    parser.add_option("-l", "--location", dest="location", help="add hard drives to groups (boxes)", action="store_true")
 
     (options, args) = parser.parse_args()
 
     filename = options.filename
     try: 
+        if options.location:
+            o = Organization()
+            o.prompt()
+
         if filename == None:
             # default file to read drives from
             filename = "drives.in"
@@ -85,7 +91,7 @@ def parse_drives(f, username, output, prompt):
             old = get_oldest_file_date(serial) or "N/A" 
             new = get_newest_file_date(serial) or "N/A"
             
-            l.labelWithInfo(serial, folders, username, old.strftime("%m-%d-%y"), new.strftime("%m-%d-%y"))
+            l.label_with_info(serial, folders, username, old.strftime("%m-%d-%y"), new.strftime("%m-%d-%y"))
             
             print "Sucessfully parsed drive: " + drive
             print
@@ -160,6 +166,13 @@ def update_hdd(label, location, serial, notes):
     query = "update drives set label = %s, location = %s, notes = %s where serial = %s"
     cursor.execute(query, (label, location, notes, serial))
 
+def hdd_exists(serial):
+    query = "select 1 from drives where serial = \'%s\'" 
+    cursor.execute(query % serial)
+    if cursor.fetchone() is None:
+        return False
+    return True
+
 def add_folder(serial, folder_name):
     query = "insert into folders (serial, folder_name) values (%s, %s)"
     cursor.execute(query, (serial, folder_name))
@@ -186,10 +199,37 @@ def update_file(file_sequence, name, folder_sequence, created, notes):
 def remove_file(file_sequence):
     cursor.execute("delete from files where file_sequence = \'%s\'" % file_sequence)
 
+def add_group(name, notes, location):
+    query = "insert into drive_group (name, notes, location) values (%s, %s, %s)"
+    cursor.execute(query, (name, notes, location))
+
+def update_group(group_id, name, notes, location):
+    query = "update drive_group set name = %s, notes = %s, location = %s where id = %s"
+    cursor.execute(query, (name, notes, location, group_id))
+
+def delete_group(group_id):
+    query = "delete from drive_group where id = \'%s\'"
+    cursor.execute(query % group_id)
+
+def add_to_group(serial, group_id):
+    query = "update drives set drive_group = %s where serial = %s"
+    cursor.execute(query, (group_id, serial))
+
+def group_exists(group_id):
+    query = "select 1 from drive_group where id = \'%s\'"
+    cursor.execute(query % group_id)
+    if cursor.fetchone() is None:
+        return False
+    return True
+
+def get_last_group_id():
+    cursor.execute("select max(id) from drive_group")
+    return cursor.fetchone()[0]
+
 def remove_all(serial):
-    query = "delete from files where folder_sequence = (select folder_sequence from folders where serial = \'%s\')" 
+    query = "delete from files where folder_sequence = (select folder_sequence from folders where serial = %s)" 
     cursor.execute(query % serial)
-    query = "delete from folders where serial = \'%s\'"
+    query = "delete from folders where serial = %s"
     cursor.execute(query % serial)
     remove_hdd(serial)
     print serial + " has been removed from the database."
@@ -206,7 +246,8 @@ def get_newest_file_date(serial):
     return cursor.fetchone()[0]
 
 
-
+class HDDSystemException(Exception):
+    pass
 
 
 
