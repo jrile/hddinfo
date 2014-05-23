@@ -21,18 +21,24 @@ def main(argv):
     (options, args) = parser.parse_args()
 
     filename = options.filename
-    if filename == None:
-        # default file to read drives from
-        filename = "drives.in"
+    try: 
+        if filename == None:
+            # default file to read drives from
+            filename = "drives.in"
 
 
-    #TODO: add username/password table
-    username = raw_input("Enter username: ")
-    while not username:
+#TODO: add username/password table
         username = raw_input("Enter username: ")
+        while not username:
+            username = raw_input("Enter username: ")
         
 
-    parse_drives(filename, username, options.output, options.prompt)
+        parse_drives(filename, username, options.output, options.prompt)
+
+
+    except IOError:
+        print "No file to read drives from. Please create a \'drives.in\' file to place the drives in, or specify a file with the -f flag."
+            
 
 
 def parse_drives(f, username, output, prompt):
@@ -54,7 +60,7 @@ def parse_drives(f, username, output, prompt):
         
             # get drive serial #. assuming serial is unique.
             serial = commands.getoutput("sudo smartctl -i " + drive[:8] + " | grep \"Serial Number:\"").split()[2]
-            print serial
+
             label = None
             location = None
             notes = None
@@ -72,11 +78,14 @@ def parse_drives(f, username, output, prompt):
                     output.write("Label: " + label + "\n")
 
             l = Label()
-            l.label(serial, ["test1", "test2", "test3"], username) #testing
+            #l.label(serial, ["test1", "test2", "test3"], username, "1-1-1999", "5-22-2014") #testing
 
             folders = parse_folders("/mnt", serial, out=output, prompt=prompt)
 
-            #label(serial, folders, username)
+            old = get_oldest_file_date(serial) or "N/A" 
+            new = get_newest_file_date(serial) or "N/A"
+            
+            l.labelWithInfo(serial, folders, username, old.strftime("%m-%d-%y"), new.strftime("%m-%d-%y"))
             
             print "Sucessfully parsed drive: " + drive
             print
@@ -91,11 +100,11 @@ def parse_drives(f, username, output, prompt):
 
         except KeyboardInterrupt:
             print "\nUser interrupt! Cancelling parsing drive " + drive + "!"
-            remove_all(serial)
-            
+            #remove_all(serial)
+
             
         finally:
-            print "Program ending... attempting to unmount " + drive
+            print "Program ending... unmounting " + drive
             if output:
                 output.close()
             command = "sudo umount /mnt"
@@ -184,6 +193,19 @@ def remove_all(serial):
     cursor.execute(query % serial)
     remove_hdd(serial)
     print serial + " has been removed from the database."
+
+def get_oldest_file_date(serial):
+    query = "select min(created) from files join folders using (folder_sequence) join drives using (serial) where serial = \'%s\'"
+    cursor.execute(query % serial)
+    print serial
+    return cursor.fetchone()[0]
+
+def get_newest_file_date(serial):
+    query = "select max(created) from files join folders using (folder_sequence) join drives using (serial) where serial = \'%s\'"
+    cursor.execute(query % serial)
+    return cursor.fetchone()[0]
+
+
 
 
 
